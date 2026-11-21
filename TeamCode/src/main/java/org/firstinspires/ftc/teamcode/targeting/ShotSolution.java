@@ -23,6 +23,11 @@ public final class ShotSolution {
         this.hood = hood;
     }
 
+    /** Fixed shot that ignores odometry: given turret angle, RPM and hood; distance unknown (NaN). */
+    public static ShotSolution fixed(double turretAngleDeg, double rpm, double hood) {
+        return new ShotSolution(Double.NaN, turretAngleDeg, rpm, hood);
+    }
+
     /** Same aim, different flywheel RPM (manual RPM override in testing). */
     public ShotSolution withRpm(double newRpm) {
         return new ShotSolution(distanceIn, turretAngleDeg, newRpm, hood);

@@ -14,6 +14,7 @@ import org.firstinspires.ftc.teamcode.commands.ShootCommand;
 import org.firstinspires.ftc.teamcode.commands.TrackGoalCommand;
 import org.firstinspires.ftc.teamcode.config.FieldConstants.Alliance;
 import org.firstinspires.ftc.teamcode.config.FieldConstants.HiveEnd;
+import org.firstinspires.ftc.teamcode.config.LockedShotConfig;
 import org.firstinspires.ftc.teamcode.util.MultiTap;
 
 /**
@@ -27,11 +28,15 @@ import org.firstinspires.ftc.teamcode.util.MultiTap;
  *                   hold: shoot. Waits for speed + aim, then gate opens and feeds.
  *                   The flywheel keeps spinning after a shot; tap to turn it off.
  *   Right bumper    flower mech toggle: press to drop down, press again to fold up
+ *                   (Turret Locked TeleOp: the flower servo is never created or sent anything)
  *   A               reject (intake + transfer in reverse)
  *   X               re-zero field-oriented heading (robot's current facing = forward)
  *   X x3 (quick)    relocalize: front bumper rammed against the metal beam at seam (3,W) red /
  *                   (3,Y) blue, facing forward (intake over the beam)
  *   D-pad up / down aim at the REAR / AUDIENCE cell (only when FieldConstants.AUTO_SWITCH_HIVE_END is off)
+ *                   Turret Locked TeleOp: D-pad left / right = turret holds a FIELD heading
+ *                   (Red 180+X / 360-X, Blue 180-X / X, X = LockedShotConfig.TURRET_OFFSET_DEG),
+ *                   D-pad up or down = turret straight forward on the robot (0°)
  * The turret and hood track our HIVE at all times. With AUTO_SWITCH_HIVE_END on (default) the goal
  * switches by itself when the robot crosses the audience/rear center line (Y = 72).
  */
@@ -70,13 +75,16 @@ public abstract class BaseTeleOp extends OpMode {
     @Override
     public void init() {
         telemetry = new MultipleTelemetry(telemetry, FtcDashboard.getInstance().getTelemetry());
-        robot = new Robot(hardwareMap);
+        robot = new Robot(hardwareMap, !lockTurret());   // Turret Locked TeleOp: flower servo never created
         robot.setAlliance(alliance);
         tracker = new TrackGoalCommand(robot);
-        shoot = skipReadyCheck ? ShootCommand.whileHeldNoWait(robot, tracker)
-                               : ShootCommand.whileHeld(robot, tracker);
+        tracker.setFixedShot(lockTurret());
+        tracker.setFixedShotValues(sampleRpm(), sampleHood());   // NaN (normal) = LockedShotConfig values
+        if (skipReadyCheck)    shoot = ShootCommand.whileHeldNoWait(robot, tracker);
+        else if (lockTurret()) shoot = ShootCommand.whileHeldWithTimeout(robot, tracker, LockedShotConfig.READY_TIMEOUT_SEC, true);
+        else                   shoot = ShootCommand.whileHeld(robot, tracker);
         flywheel = new FlywheelCommand(robot, tracker);
-        flower = FlowerCommand.whileHeld(robot.flower);
+        flower = robot.flower != null ? FlowerCommand.whileHeld(robot.flower) : null;
         telemetry.addData("Alliance", alliance);
         telemetry.update();
     }
@@ -109,6 +117,15 @@ public abstract class BaseTeleOp extends OpMode {
                 tracker.clearRpmOverride();                               // back to the shot table
                 gamepad1.rumble(150);
             }
+        } else if (lockTurret()) {
+            // ---- Turret locked: D-pad left / right = turret left / right, up or down = center ----
+            boolean left = gamepad1.dpadLeftWasPressed();
+            boolean right = gamepad1.dpadRightWasPressed();
+            boolean center = gamepad1.dpadUpWasPressed() | gamepad1.dpadDownWasPressed();   // '|' so both get read
+            if (left)   tracker.setLockedOffset(+1);
+            if (right)  tracker.setLockedOffset(-1);
+            if (center) tracker.setLockedOffset(0);
+            if (left || right || center) gamepad1.rumble(150);
         } else {
             // ---- Hive target: which end has the upward cell ----
             if (gamepad1.dpadUpWasPressed()) {
@@ -141,8 +158,8 @@ public abstract class BaseTeleOp extends OpMode {
         }
         triggerWasDown = shootHeld;
 
-        // ---- Flower mech (toggle) ----
-        if (gamepad1.rightBumperWasPressed()) {
+        // ---- Flower mech (toggle). Not created at all in the Turret Locked TeleOp. ----
+        if (flower != null && gamepad1.rightBumperWasPressed()) {
             if (commands.isRunning(flower)) commands.cancel(flower);   // fold back up
             else                            commands.schedule(flower); // drop down
         }
@@ -167,7 +184,19 @@ public abstract class BaseTeleOp extends OpMode {
         telemetry.addData("Alliance", alliance);
         telemetry.addData("Target", "%s hive, %s end (%.0f, %.0f)", robot.goal.getAlliance(),
                 robot.goal.getHiveEnd(), robot.goal.getGoalX(), robot.goal.getGoalY());
-        if (tracker.getSolution() != null) {
+        if (lockTurret()) {
+            double t = tracker.getLockedTurretAngle();
+            String side = t > 0 ? "LEFT" : t < 0 ? "RIGHT" : "CENTER";
+            if (tracker.isLockedFieldHeading()) {
+                telemetry.addData("Turret (locked)", "field %.0f° -> turret %+.0f° %s%s",
+                        tracker.getLockedFieldHeadingDeg(), t, side, robot.turret.isAtLimit() ? " (AT LIMIT)" : "");
+            } else {
+                telemetry.addData("Turret (locked)", "robot forward (D-pad L/R = field headings)");
+            }
+            telemetry.addData("Fixed shot", "%.0f RPM, hood %.2f (no odometry)",
+                    tracker.getFixedRpm(), tracker.getFixedHood());
+            if (robot.flower == null) telemetry.addData("Flower", "off (servo not created in this OpMode)");
+        } else if (tracker.getSolution() != null) {
             telemetry.addData("Distance", "%.1f in", tracker.getSolution().distanceIn);
         }
         telemetry.addData("Flywheel", commands.isRunning(flywheel)
@@ -176,13 +205,26 @@ public abstract class BaseTeleOp extends OpMode {
             telemetry.addData("RPM", "%.0f (%s)", tracker.getSolution().rpm,
                     tracker.hasRpmOverride() ? "manual: D-pad up/down, left = table" : "shot table");
         }
-        telemetry.addData("Shoot", commands.isRunning(shoot) ? shoot.getStage() : "-");
+        String shootState = !commands.isRunning(shoot) ? "-"
+                : shoot.isWaitingForRpm() ? "FEEDING (paused, waiting for RPM)" : shoot.getStage().toString();
+        telemetry.addData("Shoot", shootState);
         telemetry.addData("Aimed", tracker.isAimed());
         telemetry.update();
     }
 
     /** true = D-pad up/down sets the flywheel RPM instead of the hive end (test TeleOp only). */
     protected boolean dpadRpmControl() { return false; }
+
+    /**
+     * true = turret-locked TeleOp: odometry is not used for shooting. Turret at a fixed angle
+     * (D-pad left / right = field headings, up-or-down = 0°), fixed RPM and hood, and shooting starts after the ready
+     * timeout even if the flywheel never reaches speed. All settings are in {@link LockedShotConfig}.
+     */
+    protected boolean lockTurret() { return false; }
+
+    /** Shot sample OpModes: fixed RPM / hood for this OpMode. NaN = use LockedShotConfig. */
+    protected double sampleRpm()  { return Double.NaN; }
+    protected double sampleHood() { return Double.NaN; }
 
     /** First press starts from the RPM currently in use, so the wheel doesn't jump. */
     private void nudgeRpm(double delta) {

@@ -20,8 +20,8 @@ import org.firstinspires.ftc.teamcode.config.HardwareNames;
  * Feedforward (kS, kV) does most of the work and is battery-voltage compensated; kP fixes the rest.
  * Recovery boost: if RPM drops more than BOOST_THRESHOLD_RPM below target (a ball just went through),
  * the motor gets full power until it's within BOOST_EXIT_RPM of target, so the next ball leaves at
- * full speed. After a boost it won't fire again until the wheel has settled back within RPM_TOLERANCE,
- * which stops it from toggling on/off (oscillating) while just holding speed.
+ * full speed. After a boost it won't fire again until the wheel has stayed within RPM_TOLERANCE for
+ * BOOST_REARM_SEC, which stops it from toggling on/off (oscillating) while just holding speed.
  *
  * Spin-up ramp: the setpoint climbs toward the target at RAMP_RPM_PER_SEC (no boost while ramping),
  * so a hard full-power start doesn't make the belt skip.
@@ -47,10 +47,18 @@ public class Shooter implements Subsystem {
     /** Battery voltage kV was tuned at. */
     public static double NOMINAL_VOLTAGE = 12.5;
     public static boolean USE_BOOST = true;
-    /** Boost STARTS when RPM drops more than this far below target (lower = kicks in sooner). */
-    public static double BOOST_THRESHOLD_RPM = 50;
+    /**
+     * Boost STARTS when RPM drops more than this far below target (lower = kicks in sooner).
+     * Keep it above the normal wobble while holding speed, or the boost fires by itself and the RPM swings.
+     */
+    public static double BOOST_THRESHOLD_RPM = 100;
     /** Boost keeps full power until RPM is within this of target (lower = recovers harder). */
     public static double BOOST_EXIT_RPM = 25.0;
+    /**
+     * After a boost, the wheel must stay within RPM_TOLERANCE this long before the boost can fire again.
+     * Keep it short: the next ball usually arrives ~0.1-0.2 s after a boost ends and needs its own boost.
+     */
+    public static double BOOST_REARM_SEC = 0.05;
     /** RPM low-pass filter, 0..1. 1 = no filtering, smaller = smoother but laggier. */
     public static double RPM_FILTER = 0.6;
     public static double RPM_TOLERANCE = 100.0;
@@ -81,6 +89,8 @@ public class Shooter implements Subsystem {
     private boolean boosting = false;
     /** Boost may fire. Re-armed only once the wheel is back at speed, so it can't bang-bang while holding. */
     private boolean boostArmed = true;
+    /** How long the wheel has been continuously within RPM_TOLERANCE (not boosting, not ramping). */
+    private final ElapsedTime settledTimer = new ElapsedTime();
     private final ElapsedTime loopTimer = new ElapsedTime();
     private double integral = 0.0; // RPM x seconds
 
@@ -180,7 +190,11 @@ public class Shooter implements Subsystem {
             } else if (USE_BOOST && !ramping && boostArmed && error > BOOST_THRESHOLD_RPM) {
                 boosting = true;
             }
-            if (!boosting && !ramping && Math.abs(error) <= RPM_TOLERANCE) boostArmed = true;
+            // Re-arm only after the wheel has STAYED within tolerance for BOOST_REARM_SEC. (Checking just
+            // "within tolerance" re-armed it in the same loop the boost ended, so it bang-banged.)
+            boolean settledNow = !boosting && !ramping && Math.abs(error) <= RPM_TOLERANCE;
+            if (!settledNow) settledTimer.reset();
+            else if (settledTimer.seconds() >= BOOST_REARM_SEC) boostArmed = true;
 
             if (boosting) {
                 power = 1.0;

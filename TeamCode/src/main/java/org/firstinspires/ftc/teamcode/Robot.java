@@ -28,6 +28,7 @@ public class Robot {
     public final Turret turret;
     public final Shooter shooter;
     public final Hood hood;
+    /** Flower mech, or null when the OpMode leaves it out (its servo is then never looked up or commanded). */
     public final FlowerMech flower;
     public final GoalSelector goal;
 
@@ -35,6 +36,11 @@ public class Robot {
     private final Subsystem[] subsystems;
 
     public Robot(HardwareMap hardwareMap) {
+        this(hardwareMap, true);
+    }
+
+    /** @param withFlower false = don't create the flower mech at all: its servo is never looked up or sent anything. */
+    public Robot(HardwareMap hardwareMap, boolean withFlower) {
         bulkCache = new BulkCache(hardwareMap);
 
         drivetrain   = new Drivetrain(hardwareMap);          // Pedro Follower: drive motors + Pinpoint
@@ -44,11 +50,13 @@ public class Robot {
         turret       = new Turret(hardwareMap);
         shooter      = new Shooter(hardwareMap);
         hood         = new Hood(hardwareMap);
-        flower       = new FlowerMech(hardwareMap);
+        flower       = withFlower ? new FlowerMech(hardwareMap) : null;
         goal         = new GoalSelector(MatchState.alliance);
 
         // Drivetrain first: its follower.update() reads the Pinpoint, so everything after sees this loop's pose.
-        subsystems = new Subsystem[]{drivetrain, localization, intake, transfer, turret, shooter, hood, flower};
+        subsystems = withFlower
+                ? new Subsystem[]{drivetrain, localization, intake, transfer, turret, shooter, hood, flower}
+                : new Subsystem[]{drivetrain, localization, intake, transfer, turret, shooter, hood};
         setAlliance(MatchState.alliance);
     }
 
