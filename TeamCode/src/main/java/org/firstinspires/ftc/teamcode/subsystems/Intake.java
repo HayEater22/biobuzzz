@@ -14,7 +14,8 @@ import org.firstinspires.ftc.teamcode.config.HardwareNames;
 public class Intake implements Subsystem {
 
     public static double INTAKE_POWER = 1.0;
-    public static double REVERSE_POWER = -1.0;
+    /** Eject power (A button in TeleOp). -0.7 = 30% gentler than full reverse. */
+    public static double REVERSE_POWER = -0.7;
 
     public enum State { IDLE, INTAKING, REVERSING }
 

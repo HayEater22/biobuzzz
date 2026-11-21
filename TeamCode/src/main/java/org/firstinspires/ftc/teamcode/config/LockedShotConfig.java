@@ -3,7 +3,7 @@ package org.firstinspires.ftc.teamcode.config;
 import com.acmerobotics.dashboard.config.Config;
 
 /**
- * Settings for the Turret Locked TeleOps (Red/Blue TeleOp (Turret Locked)).
+ * Settings for "TeleOp (Turret Locked)" (runs as the Blue alliance).
  * No X/Y odometry is used; the shot uses a fixed RPM and hood. Only the gyro heading is used, for the
  * D-pad left/right field headings. Edit here, or live on the FTC Dashboard under "LockedShotConfig".
  */
@@ -27,6 +27,13 @@ public final class LockedShotConfig {
      * If it's now 180° off, use -90 instead.
      */
     public static double FIELD_HEADING_CORRECTION_DEG = 90.0;
+
+    /**
+     * true = when the robot crosses the audience/rear center line (field Y = 72), the D-pad left/right
+     * choice swaps sides automatically (like the normal TeleOp switching goal ends).
+     * Uses odometry Y position, so relocalize (triple-tap X) at the start.
+     */
+    public static boolean SWAP_SIDES_AT_CENTER_LINE = true;
 
     /** Flywheel RPM (3000 + 5%). */
     public static double RPM = 3250;

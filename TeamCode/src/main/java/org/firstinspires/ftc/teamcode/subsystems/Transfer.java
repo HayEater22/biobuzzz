@@ -18,7 +18,8 @@ public class Transfer implements Subsystem {
     public static double GATE_CLOSED_POSITION = 1.0;
     public static double GATE_OPEN_POSITION = 0.7;
     public static double FEED_POWER = 1.0;
-    public static double REVERSE_POWER = -1.0;
+    /** Eject power (A button in TeleOp). -0.7 = 30% gentler than full reverse. */
+    public static double REVERSE_POWER = -0.7;
 
     public enum MotorState { STOPPED, FEEDING, REVERSING }
 

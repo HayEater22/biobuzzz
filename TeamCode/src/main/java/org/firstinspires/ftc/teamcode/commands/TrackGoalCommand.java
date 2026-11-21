@@ -80,9 +80,28 @@ public class TrackGoalCommand implements Command {
         return ((a + 180.0) % 360.0 + 360.0) % 360.0 - 180.0;   // wrap to -180..180
     }
 
+    /** Which half of the field the robot was last in: -1 = audience side, +1 = rear side, 0 = not known yet. */
+    private int lockedHalf = 0;
+
+    /**
+     * Fixed-shot mode: when the robot crosses the audience/rear center line, swap the D-pad left/right
+     * choice (the goal is now on the other side), like the normal TeleOp switches goal ends.
+     * Uses the odometry Y position, with the same dead band as the normal TeleOp.
+     */
+    private void swapLockedSideAtCenterLine() {
+        double y = robot.localization.getY();
+        if (!LockedShotConfig.SWAP_SIDES_AT_CENTER_LINE || Double.isNaN(y)) return;
+        double line = FieldConstants.CENTER_LINE_Y;
+        double band = FieldConstants.CENTER_LINE_HYSTERESIS_IN;
+        int half = y < line - band ? -1 : y > line + band ? 1 : lockedHalf;
+        if (lockedHalf != 0 && half != lockedHalf) lockedOffsetSign = -lockedOffsetSign;
+        lockedHalf = half;
+    }
+
     @Override
     public void execute() {
         if (fixedShot) {
+            swapLockedSideAtCenterLine();
             solution = ShotSolution.fixed(getLockedTurretAngle(), getFixedRpm(), getFixedHood());
             robot.turret.setAngle(solution.turretAngleDeg);
             robot.hood.setAngle(solution.hood);
